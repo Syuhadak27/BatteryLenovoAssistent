@@ -795,8 +795,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             ecStatus = NSLocalizedString("EC langsung: MATI (cuma BCCS/BCSS)", comment: "")
         }
         thresholdECStatusItem?.attributedTitle = NSAttributedString(string: ecStatus, attributes: [
-            .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.systemGreen
         ])
 
         refreshPowerMenu()
@@ -830,8 +830,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         item.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.systemGreen
         ])
         item.isHidden = false
     }
@@ -848,8 +848,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             text = ""
         }
         item.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 10),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.systemGreen
         ])
         item.isHidden = (detail == nil)
     }
