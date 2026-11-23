@@ -13,31 +13,37 @@ pemulihan tombol fungsi keyboard dan pembaruan otomatis via Sparkle 2.
 Ikon kecil di menu bar (di dekat ikon baterai) adalah status item aplikasi. Klik untuk membuka menu:
 
 ```
-About Thinkpad Assistant
-Monitor Capslock ✓
-Launch on Login ✓
-Battery Threshold >
-Check for Updates...
-Automatically Check for Updates ✓
-Quit
+Tentang Thinkpad Assistant
+Pantau Capslock ✓
+Nyala pas Login ✓
+Batas Ngecas >
+Cek Update...
+Cek Update Otomatis ✓
+Keluar
 ```
 
-Submenu **Battery Threshold**:
+Submenu **Batas Ngecas**:
 
 ```
-Battery - 86% - Charging
+Baterai - 86% - Lagi Ngisi
+Daya: 21.3 W · 1.95 A — Lagi ngisi
 BAT0 - 73% - Detail EC
 BAT1 - 99% - Detail EC
-Threshold: Start 75% → Stop 85%
+Batas: Mulai 75% → Stop 85%
+EC langsung: MATI (cuma BCCS/BCSS)
 
-Set Start Charge At  >
-Set Stop Charge At   >
+Atur Mulai Ngecas Di  >
+Atur Stop Ngecas Di   >
 
-[✓] Enable Threshold
-Refresh Threshold
-Direct EC (ACPI WE1B)        ← advanced, default OFF
-Set EC Offsets…
+[✓] Nyalain Batas
+Refresh Batas
+EC Langsung (ACPI WE1B)      ← advanced, default MATI
+Atur Offset EC…
 ```
+
+> Baris **Daya** otomatis hilang kalau charger dicabut. Saat threshold berhenti
+> (atau baterai sudah penuh), angkanya jadi `0.0 W · 0.00 A — Stop, nggak ngisi`.
+> Seluruh teks UI memakai bahasa Indonesia sehari-hari.
 
 ---
 
@@ -64,7 +70,12 @@ Set EC Offsets…
   `IOPSGetPowerSourceDescription`)** — sumber yang sama persis dengan ikon baterai
   bawaan macOS. Di X260 ini sudah menggabungkan BAT0 + BAT1, jadi angkanya selalu
   sama dengan ikon macOS (mis. 86%, bukan 73% dari EC).
-- Tampilan utama: `Battery - 86% - Charging`.
+- Tampilan utama: `Baterai - 86% - Lagi Ngisi`.
+- **Daya masuk baterai (baru):** `kIOPSVoltageKey` (mV) × `kIOPSCurrentKey` (mA)
+  ÷ 1.000.000 → Watt, dengan fallback `AppleSmartBattery` (`InstantAmperage`)
+  kalau arus dari IOPowerSources nol. Di-refresh tiap 2 detik, pakai format titik
+  (mis. `21.3 W · 1.95 A`). Baris ini **hilang** saat charger nggak nyolok,
+  dan menunjukkan `0.0 W` saat threshold stop / arus ≈ 0.
 - Di bawahnya, detail EC kecil (opsional): `BAT0 - 73% - Detail EC`,
   `BAT1 - 99% - Detail EC`. Ini **hanya info**, bukan persen utama.
 - Persen di-refresh tiap 5 detik. Saat charger dicabut/dicolok, observer IOKit

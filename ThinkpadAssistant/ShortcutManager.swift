@@ -32,10 +32,10 @@ final class ShortcutManager {
         
         ShortcutMonitor.shared.register(disableBluetoothShortcut, withAction: {
             if(BluetoothManager.isEnabled() == true){
-                HUD.showImage(Icons.bluetoothOff, status: NSLocalizedString("Bluetooth\ndisabled", comment: ""))
+                HUD.showImage(Icons.bluetoothOff, status: NSLocalizedString("Bluetooth\nmati", comment: ""))
                 BluetoothManager.disableBluetooth()
             } else {
-                HUD.showImage(Icons.bluetoothOn, status: NSLocalizedString("Bluetooth\nenabled", comment: ""))
+                HUD.showImage(Icons.bluetoothOn, status: NSLocalizedString("Bluetooth\nnyala", comment: ""))
                 BluetoothManager.enableBluetooth()
             }
         })
@@ -46,24 +46,24 @@ final class ShortcutManager {
         
         ShortcutMonitor.shared.register(micMuteShortcut, withAction: {
             if(MuteMicManager.isMuted() == true){
-                HUD.showImage(Icons.unmute, status: NSLocalizedString("Microphone\nunmuted", comment: ""))
+                HUD.showImage(Icons.unmute, status: NSLocalizedString("Mikrofon\nnyala", comment: ""))
                 MuteMicManager.toggleMute()
             } else {
-                HUD.showImage(Icons.mute, status: NSLocalizedString("Microphone\nmuted", comment: ""))
+                HUD.showImage(Icons.mute, status: NSLocalizedString("Mikrofon\ndibisuin", comment: ""))
                 MuteMicManager.toggleMute()
             }
         })
         
         ShortcutMonitor.shared.register(micMuteShortcutActivate, withAction: {
             if(MuteMicManager.isMuted() == true){
-                HUD.showImage(Icons.unmute, status: NSLocalizedString("Microphone\nunmuted", comment: ""))
+                HUD.showImage(Icons.unmute, status: NSLocalizedString("Mikrofon\nnyala", comment: ""))
                 MuteMicManager.activateMicrophone()
             }
         })
         
         ShortcutMonitor.shared.register(micMuteShortcutDeactivate, withAction: {
             if(MuteMicManager.isMuted() == false){
-                HUD.showImage(Icons.mute, status: NSLocalizedString("Microphone\nmuted", comment: ""))
+                HUD.showImage(Icons.mute, status: NSLocalizedString("Mikrofon\ndibisuin", comment: ""))
                 MuteMicManager.deactivateMicrophone()
             }
         })
@@ -72,10 +72,10 @@ final class ShortcutManager {
             if(WifiManager.isPowered() == nil){
                 return
             } else if(WifiManager.isPowered() == true){
-                HUD.showImage(Icons.wlanOff, status: NSLocalizedString("Wi-Fi\ndisabled", comment: ""))
+                HUD.showImage(Icons.wlanOff, status: NSLocalizedString("Wi-Fi\nmati", comment: ""))
                 WifiManager.disableWifi()
             } else {
-                HUD.showImage(Icons.wlanOn, status: NSLocalizedString("Wi-Fi\nenabled", comment: ""))
+                HUD.showImage(Icons.wlanOn, status: NSLocalizedString("Wi-Fi\nnyala", comment: ""))
                 WifiManager.enableWifi()
             }
         })
@@ -85,35 +85,35 @@ final class ShortcutManager {
                 DispatchQueue.background(background: {
                     DisplayManager.disableHardwareMirroring()
                 }, completion:{
-                    HUD.showImage(Icons.extending, status: NSLocalizedString("Screen\nextending", comment: ""))
+                    HUD.showImage(Icons.extending, status: NSLocalizedString("Layar\ndiperpanjang", comment: ""))
                 })
             } else {
                 DispatchQueue.background(background: {
                     DisplayManager.enableHardwareMirroring()
                 }, completion:{
-                    HUD.showImage(Icons.mirroring, status: NSLocalizedString("Screen\nmirroring", comment: ""))
+                    HUD.showImage(Icons.mirroring, status: NSLocalizedString("Layar\nduplikat", comment: ""))
                 })
             }
         })
         
         ShortcutMonitor.shared.register(backlightOffShortcut, withAction: {
-            HUD.showImage(Icons.backlightOff, status: NSLocalizedString("Backlight\noff", comment: ""))
+            HUD.showImage(Icons.backlightOff, status: NSLocalizedString("Layar\nmati", comment: ""))
         })
         
         ShortcutMonitor.shared.register(backlightDimmedShortcut, withAction: {
-            HUD.showImage(Icons.backlightDimmed, status: NSLocalizedString("Backlight\ndimmed", comment: ""))
+            HUD.showImage(Icons.backlightDimmed, status: NSLocalizedString("Layar\nredup", comment: ""))
         })
         
         ShortcutMonitor.shared.register(backlightBrightShortcut, withAction: {
-            HUD.showImage(Icons.backlightBright, status: NSLocalizedString("Backlight\nbright", comment: ""))
+            HUD.showImage(Icons.backlightBright, status: NSLocalizedString("Layar\nterang", comment: ""))
         })
         
         ShortcutMonitor.shared.register(fnlockOnShortcut, withAction: {
-            HUD.showImage(Icons.fnlockOn, status: NSLocalizedString("Function\nKeys", comment: ""))
+            HUD.showImage(Icons.fnlockOn, status: NSLocalizedString("Tombol\nFungsi", comment: ""))
         })
         
         ShortcutMonitor.shared.register(fnlockOffShortcut, withAction: {
-            HUD.showImage(Icons.fnlockOff, status: NSLocalizedString("Media\nKeys", comment: ""))
+            HUD.showImage(Icons.fnlockOff, status: NSLocalizedString("Tombol\nMedia", comment: ""))
         })
     }
     

@@ -17,7 +17,7 @@ class AboutViewController: NSViewController {
         super.viewDidLoad()
         
          if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-            self.versionLabel.stringValue = NSLocalizedString("Version", comment: "") + " " + version
+            self.versionLabel.stringValue = NSLocalizedString("Versi", comment: "") + " " + version
         }
         NSApp.activate(ignoringOtherApps: true)
         let notificationCenter = NotificationCenter.default

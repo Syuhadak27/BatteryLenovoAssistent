@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Battery threshold (YogaSMC ThinkVPC) — lihat SUMMARY.md bagian 4 dan 9.
     private weak var thresholdBatteryItem: NSMenuItem?
+    private weak var thresholdPowerItem: NSMenuItem?
     private weak var thresholdEC0Item: NSMenuItem?
     private weak var thresholdEC1Item: NSMenuItem?
     private weak var thresholdSummaryItem: NSMenuItem?
@@ -43,6 +44,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Battery sync monitoring (IOPowerSources = sumber angka ikon macOS).
     private var batteryRefreshTimer: Timer?
+    private var powerRefreshTimer: Timer?
     private var powerSourceRunLoopSource: CFRunLoopSource?
     private var batteryMismatchSince: Date?
     private var lastDisplayedPercent: Int?
@@ -127,9 +129,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var errorDescription: String? {
             switch self {
             case .serviceNotFound:
-                return NSLocalizedString("ThinkVPC (YogaSMC) service not found. Make sure YogaSMC 1.5.3 is loaded.", comment: "")
+                return NSLocalizedString("Layanan ThinkVPC (YogaSMC) nggak ketemu. Pastikan YogaSMC 1.5.3 ke-load.", comment: "")
             case .setFailed(let kr):
-                return String(format: NSLocalizedString("Could not write threshold (0x%08X). Administrator rights may be required.", comment: ""), kr)
+                return String(format: NSLocalizedString("Gagal nulis batas (0x%08X). Mungkin butuh hak admin.", comment: ""), kr)
             }
         }
     }
@@ -153,11 +155,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var errorDescription: String? {
             switch self {
             case .serviceNotFound:
-                return NSLocalizedString("ThinkVPC (YogaSMC) service not found.", comment: "")
+                return NSLocalizedString("Layanan ThinkVPC (YogaSMC) nggak ketemu.", comment: "")
             case .openFailed(let kr):
-                return String(format: NSLocalizedString("Could not open YogaSMC user client (0x%08X).", comment: ""), kr)
+                return String(format: NSLocalizedString("Gagal buka koneksi YogaSMC (0x%08X).", comment: ""), kr)
             case .callFailed(let name, let kr):
-                return String(format: NSLocalizedString("YogaSMC %@ failed (0x%08X).", comment: ""), name, kr)
+                return String(format: NSLocalizedString("YogaSMC %@ gagal (0x%08X).", comment: ""), name, kr)
             }
         }
     }
@@ -287,11 +289,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let state = description[kIOPSPowerSourceStateKey as String] as? String ?? ""
                 let stateText: String
                 if charging {
-                    stateText = NSLocalizedString("Charging", comment: "")
+                    stateText = NSLocalizedString("Lagi Ngisi", comment: "")
                 } else if state == kIOPSACPowerValue {
-                    stateText = NSLocalizedString("Not Charging", comment: "")
+                    stateText = NSLocalizedString("Colok, nggak ngisi", comment: "")
                 } else {
-                    stateText = NSLocalizedString("Discharging", comment: "")
+                    stateText = NSLocalizedString("Pakai Baterai", comment: "")
                 }
 
                 let remaining = charging
@@ -313,6 +315,102 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         private static func int(_ value: Any?, fallback: Int = 0) -> Int {
             (value as? NSNumber)?.intValue ?? fallback
+        }
+    }
+
+    /// Arus + tegangan real-time dari baterai.
+    /// Sumber utama: IOPowerSources (kIOPSVoltageKey mV, kIOPSCurrentKey mA).
+    /// Fallback: AppleSmartBattery di IORegistry (InstantAmperage / Amperage).
+    private struct LivePowerStatus {
+        let voltageMV: Int
+        let currentMA: Int
+        let charging: Bool
+        let acConnected: Bool
+
+        var amps: Double { Double(abs(currentMA)) / 1000 }
+        var watts: Double { abs(Double(voltageMV) * Double(currentMA)) / 1_000_000 }
+
+        /// Charger nyolok tapi arus ≈ 0 / nggak dilaporkan ngisi:
+        /// bisa karena threshold stop, bisa juga karena baterai sudah penuh.
+        var stoppedWhilePlugged: Bool {
+            acConnected && (!charging || abs(currentMA) < 50)
+        }
+    }
+
+    private enum LivePowerReader {
+        static func read() -> LivePowerStatus? {
+            let blob = IOPSCopyPowerSourcesInfo().takeRetainedValue()
+            guard let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else {
+                return nil
+            }
+
+            var acConnected = false
+            var charging = false
+            var sourceVoltage: Int?
+            var sourceCurrent: Int?
+
+            for source in sources {
+                guard let desc = IOPSGetPowerSourceDescription(blob, source)?
+                        .takeUnretainedValue() as? [String: Any] else { continue }
+
+                if desc[kIOPSPowerSourceStateKey as String] as? String == kIOPSACPowerValue {
+                    acConnected = true
+                }
+                guard desc[kIOPSTypeKey as String] as? String == kIOPSInternalBatteryType else { continue }
+
+                charging = desc[kIOPSIsChargingKey as String] as? Bool ?? false
+                sourceVoltage = validInt(desc[kIOPSVoltageKey as String], in: 1...50_000)
+                sourceCurrent = validInt(desc[kIOPSCurrentKey as String], in: -100_000...100_000)
+            }
+
+            // Tanpa charger, baris daya memang sengaja disembunyikan.
+            guard acConnected else { return nil }
+
+            let registry = registryElectrical()
+            let voltage = sourceVoltage ?? registry.voltage
+            let current: Int?
+            if let fromIOPS = sourceCurrent, fromIOPS != 0 {
+                current = fromIOPS
+            } else {
+                current = registry.current ?? sourceCurrent
+            }
+            guard let v = voltage, let i = current else { return nil }
+
+            return LivePowerStatus(
+                voltageMV: v,
+                currentMA: i,
+                charging: charging,
+                acConnected: acConnected
+            )
+        }
+
+        /// AppleSmartBattery cadangan kalau IOPS Current = 0 (sering di Hackintosh).
+        private static func registryElectrical() -> (voltage: Int?, current: Int?) {
+            let service = IOServiceGetMatchingService(
+                kIOMasterPortDefault,
+                IOServiceMatching("AppleSmartBattery")
+            )
+            guard service != 0 else { return (nil, nil) }
+            defer { IOObjectRelease(service) }
+
+            var properties: Unmanaged<CFMutableDictionary>?
+            guard IORegistryEntryCreateCFProperties(
+                service, &properties, kCFAllocatorDefault, 0
+            ) == kIOReturnSuccess,
+            let dict = properties?.takeRetainedValue() as? [String: Any] else {
+                return (nil, nil)
+            }
+            let voltage = validInt(dict["Voltage"], in: 1...50_000)
+            let current = validInt(dict["InstantAmperage"], in: -100_000...100_000)
+                ?? validInt(dict["Amperage"], in: -100_000...100_000)
+            return (voltage, current)
+        }
+
+        private static func validInt(_ value: Any?, in range: ClosedRange<Int>) -> Int? {
+            guard let number = (value as? NSNumber)?.intValue, range.contains(number) else {
+                return nil
+            }
+            return number
         }
     }
 
@@ -537,11 +635,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let connected = boolProperty("ExternalConnected", service) ?? false
             let stateText: String
             if charging {
-                stateText = NSLocalizedString("Charging ⚡", comment: "")
+                stateText = NSLocalizedString("Lagi Ngisi ⚡", comment: "")
             } else if connected {
-                stateText = NSLocalizedString("Not Charging 🔌", comment: "")
+                stateText = NSLocalizedString("Colok, nggak ngisi 🔌", comment: "")
             } else {
-                stateText = NSLocalizedString("Discharging 🔋", comment: "")
+                stateText = NSLocalizedString("Pakai Baterai 🔋", comment: "")
             }
             return BatteryStatus(name: batteryName(service), percent: percent, stateText: stateText)
         }
@@ -584,58 +682,62 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             statusBarMenu.removeItem(item)
         }
 
-        let item = NSMenuItem(title: NSLocalizedString("Battery Threshold", comment: ""), action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: NSLocalizedString("Batas Ngecas", comment: ""), action: nil, keyEquivalent: "")
         let menu = NSMenu()
 
         let batteryLine = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
+        let powerLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         let ec0Line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         let ec1Line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         let summaryLine = NSMenuItem(title: "…", action: nil, keyEquivalent: "")
         let ecStatusLine = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         batteryLine.isEnabled = false
+        powerLine.isEnabled = false
         ec0Line.isEnabled = false
         ec1Line.isEnabled = false
         summaryLine.isEnabled = false
         ecStatusLine.isEnabled = false
         thresholdBatteryItem = batteryLine
+        thresholdPowerItem = powerLine
         thresholdEC0Item = ec0Line
         thresholdEC1Item = ec1Line
         thresholdSummaryItem = summaryLine
         thresholdECStatusItem = ecStatusLine
         menu.addItem(batteryLine)
+        menu.addItem(powerLine)
         menu.addItem(ec0Line)
         menu.addItem(ec1Line)
         menu.addItem(summaryLine)
         menu.addItem(ecStatusLine)
         menu.addItem(NSMenuItem.separator())
 
-        let startItem = NSMenuItem(title: NSLocalizedString("Set Start Charge At", comment: ""), action: nil, keyEquivalent: "")
+        let startItem = NSMenuItem(title: NSLocalizedString("Atur Mulai Ngecas Di", comment: ""), action: nil, keyEquivalent: "")
         startItem.submenu = valueSubmenu(tagBase: 1000, action: #selector(setStart(_:)))
         menu.addItem(startItem)
         thresholdStartItem = startItem
 
-        let stopItem = NSMenuItem(title: NSLocalizedString("Set Stop Charge At", comment: ""), action: nil, keyEquivalent: "")
+        let stopItem = NSMenuItem(title: NSLocalizedString("Atur Stop Ngecas Di", comment: ""), action: nil, keyEquivalent: "")
         stopItem.submenu = valueSubmenu(tagBase: 2000, action: #selector(setStop(_:)))
         menu.addItem(stopItem)
         thresholdStopItem = stopItem
 
         menu.addItem(NSMenuItem.separator())
-        let enable = NSMenuItem(title: NSLocalizedString("Enable Threshold", comment: ""), action: #selector(toggleThreshold(_:)), keyEquivalent: "")
+        let enable = NSMenuItem(title: NSLocalizedString("Nyalain Batas", comment: ""), action: #selector(toggleThreshold(_:)), keyEquivalent: "")
         enable.target = self
         menu.addItem(enable)
         thresholdEnableItem = enable
 
-        let refresh = NSMenuItem(title: NSLocalizedString("Refresh Threshold", comment: ""), action: #selector(refreshThresholdMenu), keyEquivalent: "")
+        let refresh = NSMenuItem(title: NSLocalizedString("Refresh Batas", comment: ""), action: #selector(refreshThresholdMenu), keyEquivalent: "")
         refresh.target = self
         menu.addItem(refresh)
 
         menu.addItem(NSMenuItem.separator())
-        let directEC = NSMenuItem(title: NSLocalizedString("Direct EC (ACPI WE1B)", comment: ""), action: #selector(toggleDirectEC(_:)), keyEquivalent: "")
+        let directEC = NSMenuItem(title: NSLocalizedString("EC Langsung (ACPI WE1B)", comment: ""), action: #selector(toggleDirectEC(_:)), keyEquivalent: "")
         directEC.target = self
         menu.addItem(directEC)
         thresholdECDirectItem = directEC
 
-        let ecOffsets = NSMenuItem(title: NSLocalizedString("Set EC Offsets…", comment: ""), action: #selector(setECOffsets(_:)), keyEquivalent: "")
+        let ecOffsets = NSMenuItem(title: NSLocalizedString("Atur Offset EC…", comment: ""), action: #selector(setECOffsets(_:)), keyEquivalent: "")
         ecOffsets.target = self
         menu.addItem(ecOffsets)
 
@@ -659,14 +761,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Persen utama = IOPowerSources, sumber yang sama dengan ikon baterai macOS.
         if let power = power {
             thresholdBatteryItem?.title = String(
-                format: NSLocalizedString("Battery - %d%% - %@", comment: ""),
+                format: NSLocalizedString("Baterai - %d%% - %@", comment: ""),
                 power.percent, power.stateText
             )
             let remaining = power.timeRemainingMinutes.map { " / \($0) min" } ?? ""
             NSLog("[BatterySync] source IOPowerSources: %d/%d = %d%%%@ | %@",
                   power.current, power.max, power.percent, remaining, power.stateText)
         } else {
-            thresholdBatteryItem?.title = NSLocalizedString("Battery - Unknown", comment: "")
+            thresholdBatteryItem?.title = NSLocalizedString("Baterai - Nggak diketahui", comment: "")
         }
 
         // Detail EC kecil di bawahnya — tidak pernah dipakai sebagai persen utama.
@@ -675,7 +777,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         applyECDetail(thresholdEC1Item, detail: details.indices.contains(1) ? details[1] : nil)
 
         thresholdSummaryItem?.title = String(
-            format: NSLocalizedString("Threshold: Start %d%% → Stop %d%%", comment: ""),
+            format: NSLocalizedString("Batas: Mulai %d%% → Stop %d%%", comment: ""),
             manager.start, manager.stop
         )
         thresholdEnableItem?.state = manager.isEnabled ? .on : .off
@@ -688,18 +790,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let s = manager.ecStartOffset.map { String(format: "0x%02X", $0) } ?? "—"
             let p = manager.ecStopOffset.map { String(format: "0x%02X", $0) } ?? "—"
             let i = manager.ecInhibitOffset.map { String(format: "0x%02X", $0) } ?? "—"
-            ecStatus = String(format: NSLocalizedString("EC direct: ON · S %@ · P %@ · I %@", comment: ""), s, p, i)
+            ecStatus = String(format: NSLocalizedString("EC langsung: NYALA · S %@ · P %@ · I %@", comment: ""), s, p, i)
         } else {
-            ecStatus = NSLocalizedString("EC direct: OFF (ACPI BCCS/BCSS only)", comment: "")
+            ecStatus = NSLocalizedString("EC langsung: MATI (cuma BCCS/BCSS)", comment: "")
         }
         thresholdECStatusItem?.attributedTitle = NSAttributedString(string: ecStatus, attributes: [
             .font: NSFont.systemFont(ofSize: 10),
             .foregroundColor: NSColor.secondaryLabelColor
         ])
 
+        refreshPowerMenu()
+
         // Debug saja — tidak pernah tampil di UI.
         manager.logRawThresholds()
         verifyDisplaySync(macOSPercent: power?.percent)
+    }
+
+    /// Baris daya masuk baterai. Hilang total kalau charger nggak nyolok
+    /// atau data arus/tegangan nggak tersedia.
+    private func refreshPowerMenu() {
+        guard let item = thresholdPowerItem else { return }
+        guard let power = LivePowerReader.read(), power.acConnected else {
+            item.attributedTitle = NSAttributedString(string: "")
+            item.isHidden = true
+            return
+        }
+
+        let stopped = power.stoppedWhilePlugged
+        let watts = stopped ? 0 : power.watts
+        let amps = stopped ? 0 : power.amps
+        let status = stopped
+            ? NSLocalizedString("Stop, nggak ngisi (threshold jalan)", comment: "")
+            : NSLocalizedString("Lagi ngisi", comment: "")
+        let format = NSLocalizedString("Daya: %.1f W · %.2f A — %@", comment: "")
+        let text = String(
+            format: format,
+            locale: Locale(identifier: "en_US_POSIX"), // titik, bukan koma
+            watts, amps, status
+        )
+
+        item.attributedTitle = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 10),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+        item.isHidden = false
     }
 
     private func applyECDetail(_ item: NSMenuItem?, detail: BatteryStatus?) {
@@ -729,6 +863,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshThresholdMenu()
         }
         if let timer = batteryRefreshTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+
+        // Daya/arus di-refresh lebih cepat dari menu biasa supaya terasa live.
+        powerRefreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.refreshPowerMenu()
+        }
+        if let timer = powerRefreshTimer {
             RunLoop.main.add(timer, forMode: .common)
         }
 
@@ -826,6 +968,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     deinit {
         batteryRefreshTimer?.invalidate()
+        powerRefreshTimer?.invalidate()
         ecReapplyTimer?.invalidate()
         pendingForceApply?.cancel()
         YogaSMCECBridge.shared.closeConnection()
@@ -852,10 +995,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         manager.ecDirectEnabled = !manager.ecDirectEnabled
         if manager.ecDirectEnabled && (manager.ecStartOffset == nil || manager.ecStopOffset == nil) {
             let alert = NSAlert()
-            alert.messageText = NSLocalizedString("Direct EC (ACPI WE1B)", comment: "")
-            alert.informativeText = NSLocalizedString("Direct EC is ON, but Start/Stop EC offsets are not set. Use 'Set EC Offsets…' with offsets verified for your machine; otherwise no byte will be written to EC.", comment: "")
+            alert.messageText = NSLocalizedString("EC Langsung (ACPI WE1B)", comment: "")
+            alert.informativeText = NSLocalizedString("EC Langsung nyala, tapi offset Start/Stop belum diisi. Isi dulu lewat 'Atur Offset EC…' pakai offset yang sudah kamu cek; kalau nggak, nggak ada byte yang ditulis ke EC.", comment: "")
             alert.alertStyle = .informational
-            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+            alert.addButton(withTitle: NSLocalizedString("Oke", comment: ""))
             alert.runModal()
         }
         refreshThresholdMenu()
@@ -865,8 +1008,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func setECOffsets(_ sender: Any?) {
         let manager = BatteryThresholdManager.shared
         let alert = NSAlert()
-        alert.messageText = NSLocalizedString("EC Offsets (ACPI WE1B)", comment: "")
-        alert.informativeText = NSLocalizedString("Hex EC RAM offsets (0x01–0x99). Leave empty or set 0 to clear. Only use values verified for your laptop model — a wrong offset can change unrelated EC behaviour.", comment: "")
+        alert.messageText = NSLocalizedString("Offset EC (ACPI WE1B)", comment: "")
+        alert.informativeText = NSLocalizedString("Offset RAM EC dalam hex (0x01–0x99). Kosongkan atau isi 0 buat hapus. Pakai cuma nilai yang sudah kamu cek di mesinmu — salah offset bisa ngubah perilaku fan/LED/sleep.", comment: "")
         alert.alertStyle = .informational
 
         let panel = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 96))
@@ -886,8 +1029,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             fields.append(field)
         }
         alert.accessoryView = panel
-        alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
-        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Oke", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Batal", comment: ""))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         func parse(_ field: NSTextField) -> UInt8? {
@@ -911,10 +1054,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             refreshThresholdMenu()
         } catch {
             let alert = NSAlert()
-            alert.messageText = NSLocalizedString("Battery Threshold", comment: "")
+            alert.messageText = NSLocalizedString("Batas Ngecas", comment: "")
             alert.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             alert.alertStyle = .warning
-            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+            alert.addButton(withTitle: NSLocalizedString("Oke", comment: ""))
             alert.runModal()
         }
     }
@@ -927,7 +1070,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @MainActor
     private func setupUpdateMenu() {
         let checkItem = NSMenuItem(
-            title: NSLocalizedString("Check for Updates...", comment: ""),
+            title: NSLocalizedString("Cek Update...", comment: ""),
             action: #selector(checkForUpdatesPressed(_:)),
             keyEquivalent: ""
         )
@@ -935,7 +1078,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarMenu.insertItem(checkItem, at: max(0, statusBarMenu.items.count - 1))
 
         let automaticItem = NSMenuItem(
-            title: NSLocalizedString("Automatically Check for Updates", comment: ""),
+            title: NSLocalizedString("Cek Update Otomatis", comment: ""),
             action: #selector(toggleAutomaticChecks(_:)),
             keyEquivalent: ""
         )
