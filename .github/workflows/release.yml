@@ -14,6 +14,7 @@ permissions:
 env:
   APP_NAME: ThinkpadAssistant
   BUILD_DIR: build/Build/Products/Release
+  SPARKLE_VERSION: "2.10.1"
 
 jobs:
   release:
@@ -114,6 +115,99 @@ jobs:
             ${{ steps.package.outputs.dmg }}
             ${{ steps.package.outputs.sums }}
           retention-days: 90
+
+      - name: Siapkan sign_update + tanda tangani zip (Sparkle Ed25519)
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          ZIP_PATH: ${{ steps.package.outputs.zip }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SPARKLE_PRIVATE_KEY:-}" ]; then
+            echo "::error::GitHub Secret SPARKLE_PRIVATE_KEY belum diset." >&2
+            exit 1
+          fi
+
+          CACHE_DIR="${RUNNER_TEMP}/sparkle-${SPARKLE_VERSION}"
+          mkdir -p "${CACHE_DIR}"
+          curl --fail --location --retry 3 --silent --show-error \
+            -o "${CACHE_DIR}/Sparkle.tar.xz" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+          tar -xJf "${CACHE_DIR}/Sparkle.tar.xz" -C "${CACHE_DIR}" bin/sign_update
+          chmod +x "${CACHE_DIR}/bin/sign_update"
+
+          # Key lewat stdin (--ed-key-file -): tidak pernah ditulis ke disk / ps.
+          # Format exported key = 1 baris base64 (sesuai generate_keys -x).
+          SIGNATURE="$(printf '%s' "${SPARKLE_PRIVATE_KEY}" | \
+            "${CACHE_DIR}/bin/sign_update" --ed-key-file - -p "${ZIP_PATH}")"
+          LENGTH="$(stat -f%z "${ZIP_PATH}")"
+
+          echo "signature=${SIGNATURE}" >> "$GITHUB_OUTPUT"
+          echo "length=${LENGTH}" >> "$GITHUB_OUTPUT"
+          echo "### Sparkle signature" >> "$GITHUB_STEP_SUMMARY"
+          echo "- length: ${LENGTH}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update appcast.xml
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          SIGNATURE: ${{ steps.sparkle.outputs.signature }}
+          LENGTH: ${{ steps.sparkle.outputs.length }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, xml.etree.ElementTree as ET
+
+          ns = {
+              'sparkle': 'http://www.andymatuschak.org/xml-namespaces/sparkle',
+              'dc': 'http://purl.org/dc/elements/1.1/',
+          }
+          ET.register_namespace('sparkle', ns['sparkle'])
+          ET.register_namespace('dc', ns['dc'])
+
+          version = os.environ['VERSION']
+          build = os.environ['BUILD_NUMBER']
+          signature = os.environ['SIGNATURE']
+          length = os.environ['LENGTH']
+
+          tree = ET.parse('appcast.xml')
+          root = tree.getroot()
+          channel = root.find('channel')
+
+          # Hapus item lama dengan versi yang sama (idempotent).
+          for item in list(channel.findall('item')):
+              enc = item.find('enclosure')
+              if enc is not None and enc.get('{http://www.andymatuschak.org/xml-namespaces/sparkle}version') == build:
+                  channel.remove(item)
+
+          item = ET.Element('item')
+          ET.SubElement(item, 'title').text = f'Version {version}'
+          ET.SubElement(item, 'pubDate').text = os.popen(
+              'date -u "+%a, %d %b %Y %H:%M:%S +0000"'
+          ).read().strip()
+          ET.SubElement(item, 'enclosure', {
+              'url': f'https://github.com/Syuhadak27/BatteryLenovoAssistent/releases/download/v{version}/ThinkpadAssistant-{version}.zip',
+              '{http://www.andymatuschak.org/xml-namespaces/sparkle}version': build,
+              '{http://www.andymatuschak.org/xml-namespaces/sparkle}shortVersionString': version,
+              '{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature': signature,
+              'type': 'application/octet-stream',
+              'length': length,
+          })
+          channel.insert(0, item)
+
+          tree.write('appcast.xml', encoding='utf-8', xml_declaration=True)
+          print(f'Updated appcast.xml -> {version} (build {build})')
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- appcast.xml; then
+            git add appcast.xml
+            git commit -m "chore: update appcast.xml for v${VERSION} [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "appcast.xml sudah up to date, tidak ada commit."
+          fi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
