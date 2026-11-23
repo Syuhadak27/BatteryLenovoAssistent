@@ -1,0 +1,138 @@
+name: Release Thinkpad Assistant
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: ThinkpadAssistant
+  BUILD_DIR: build/Build/Products/Release
+
+jobs:
+  release:
+    # Runner Intel; deployment target 13.0 => binary jalan di Ventura ke atas.
+    runs-on: macos-15-intel
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build (Ventura 13.0+, universal x86_64 + arm64)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ThinkpadAssistant.xcodeproj \
+            -scheme ThinkpadAssistant \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath build \
+            -quiet \
+            MACOSX_DEPLOYMENT_TARGET=13.0 \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            ONLY_ACTIVE_ARCH=NO \
+            ARCHS='x86_64 arm64' 2>&1 | tee xcodebuild.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "## xcodebuild failed (exit $status)"
+              echo '```'
+              tail -n 250 xcodebuild.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 3
+
+      - name: Verify .app + baca versi
+        id: version
+        run: |
+          set -euo pipefail
+          APP="${BUILD_DIR}/${APP_NAME}.app"
+          test -d "${APP}"
+          codesign --verify --deep --strict "${APP}"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${APP}/Contents/Info.plist")"
+          BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "${APP}/Contents/Info.plist")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "build_number=${BUILD_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${APP_NAME}-${VERSION}.zip" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=${APP_NAME}-${VERSION}.dmg" >> "$GITHUB_OUTPUT"
+          echo "### Build ${VERSION} (${BUILD_NUMBER})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Package (.app → .zip + .dmg)
+        id: package
+        run: |
+          set -euo pipefail
+          cd "${BUILD_DIR}"
+
+          ZIP_NAME="${APP_NAME}-${{ steps.version.outputs.version }}.zip"
+          DMG_NAME="${APP_NAME}-${{ steps.version.outputs.version }}.dmg"
+
+          ditto -c -k --keepParent "${APP_NAME}.app" "${GITHUB_WORKSPACE}/${ZIP_NAME}"
+
+          rm -rf dmg-staging
+          mkdir dmg-staging
+          cp -R "${APP_NAME}.app" dmg-staging/
+          ln -s /Applications dmg-staging/Applications
+          hdiutil create \
+            -volname "Thinkpad Assistant" \
+            -srcfolder dmg-staging \
+            -ov \
+            -format UDZO \
+            "${GITHUB_WORKSPACE}/${DMG_NAME}"
+
+          shasum -a 256 "${GITHUB_WORKSPACE}/${ZIP_NAME}" "${GITHUB_WORKSPACE}/${DMG_NAME}" \
+            > "${GITHUB_WORKSPACE}/SHA256SUMS.txt"
+
+          echo "zip=${GITHUB_WORKSPACE}/${ZIP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "dmg=${GITHUB_WORKSPACE}/${DMG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "sums=${GITHUB_WORKSPACE}/SHA256SUMS.txt" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ThinkpadAssistant-${{ steps.version.outputs.version }}
+          path: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.dmg }}
+            ${{ steps.package.outputs.sums }}
+          retention-days: 90
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Thinkpad Assistant v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          body: |
+            ## Install (macOS Ventura 13+)
+            1. Unduh **`${{ steps.version.outputs.dmg_name }}`**, buka, drag *Thinkpad Assistant.app* ke **Applications**.
+            2. Karena binary ad-hoc signed (tanpa notarisasi), jalankan sekali:
+               ```bash
+               xattr -cr /Applications/ThinkpadAssistant.app
+               ```
+            3. Jalankan aplikasi → menu bar → **Battery Threshold**.
+
+            Alternatif: **`${{ steps.version.outputs.zip_name }}`** berisi `.app` yang sama (dipakai Sparkle).
+            Cek hash di `SHA256SUMS.txt`.
+          files: |
+            ${{ steps.package.outputs.zip }}
+            ${{ steps.package.outputs.dmg }}
+            ${{ steps.package.outputs.sums }}

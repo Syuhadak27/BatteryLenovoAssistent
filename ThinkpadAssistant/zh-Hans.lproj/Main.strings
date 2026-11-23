@@ -1,0 +1,26 @@
+/* Class = "NSMenu"; title = "Main Menu"; ObjectID = "AYu-sK-qS6"; */
+"AYu-sK-qS6.title" = "主菜单";
+
+/* Class = "NSTextFieldCell"; title = "Hak cipta © 2026 Syuhadak27. Seluruh hak dilindungi."; ObjectID = "Dsc-bK-vCJ"; */
+"Dsc-bK-vCJ.title" = "Hak cipta © 2026 Syuhadak27. Seluruh hak dilindungi.";
+
+/* Class = "NSButtonCell"; title = "github.com/Syuhadak27/ThinkpadAssistent"; ObjectID = "GHc-7L-3nRqSt"; */
+"GHc-7L-3nRqSt.title" = "github.com/Syuhadak27/ThinkpadAssistent";
+
+/* Class = "NSWindow"; title = "About Thinkpad Assistant"; ObjectID = "eOf-uU-tUq"; */
+"eOf-uU-tUq.title" = "关于 Thinkpad Assistant";
+
+/* Class = "NSMenuItem"; title = "About Thinkpad Assistant"; ObjectID = "Kql-K9-yoI"; */
+"Kql-K9-yoI.title" = "关于 Thinkpad Assistant";
+
+/* Class = "NSMenuItem"; title = "Launch on Login"; ObjectID = "Lcb-4h-zk2"; */
+"Lcb-4h-zk2.title" = "开机自启动";
+
+/* Class = "NSMenuItem"; title = "Monitor Capslock"; ObjectID = "Nth-Jo-BIN"; */
+"Nth-Jo-BIN.title" = "监测大写锁定键";
+
+/* Class = "NSMenuItem"; title = "Quit"; ObjectID = "Q77-Nx-rEG"; */
+"Q77-Nx-rEG.title" = "退出";
+
+/* Class = "NSTextFieldCell"; title = "Version 1.0.0"; ObjectID = "Yvs-Nm-uAg"; */
+"Yvs-Nm-uAg.title" = "版本  1.0.0";
