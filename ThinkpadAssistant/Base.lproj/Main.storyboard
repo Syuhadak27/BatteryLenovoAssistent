@@ -121,9 +121,6 @@
                             </textField>
                         </subviews>
                     </view>
-                    <connections>
-                        <outlet property="versionLabel" destination="2UA-sF-QOA" id="pax-E0-cXV"/>
-                    </connections>
                 </viewController>
                 <customObject id="qtf-ca-JAy" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>
             </objects>

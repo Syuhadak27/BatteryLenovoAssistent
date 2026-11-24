@@ -56,6 +56,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @IBOutlet weak var monitorCapslocksMenuItem: NSMenuItem!
     @IBOutlet weak var launchAtLoginMenuItem: NSMenuItem!
+
+    // UI baru
+    private let statusBatteryView = StatusBarBatteryView(frame: NSRect(x: 0, y: 0, width: 220, height: 42))
+    private var settingsWindowController: NSWindowController?
+    private var aboutWindowController: NSWindowController?
     
     @MainActor
     func applicationDidFinishLaunching(_ aNotification: Notification) {
@@ -92,23 +97,115 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func setupMenuBar() {
         statusItem.button?.image = NSImage(named: "menuIcon")
         statusItem.button?.alternateImage = NSImage(named: "menuIcon-light")
-        
+
         statusItem.button?.image?.size = NSSize(width: 18, height: 18)
         statusItem.button?.alternateImage?.size = NSSize(width: 18, height: 18)
-        
+
         statusItem.menu = statusBarMenu
-        
+
+        rebuildMenu()
+
+        startBatteryMonitoring()
+    }
+
+    /// Menu dropdown dibangun ulang sepenuhnya dari kode supaya grouping,
+    /// urutan, dan separator konsisten (storyboard hanya dipakai untuk segue About).
+    @MainActor
+    private func rebuildMenu() {
+        statusBarMenu.removeAllItems()
+
+        // 1. Header status baterai (custom view).
+        let headerItem = NSMenuItem()
+        headerItem.view = statusBatteryView
+        statusBarMenu.addItem(headerItem)
+        statusBarMenu.addItem(NSMenuItem.separator())
+
+        // 2. Submenu Baterai — seluruh logika threshold lama dipertahankan.
+        setupBatteryThresholdMenu()
+
+        // 3. Pengaturan (caplock, login, update otomatis, cek update).
+        let settingsMenu = NSMenu()
+
+        let caps = NSMenuItem(
+            title: NSLocalizedString("Pantau Capslock", comment: ""),
+            action: #selector(monitorCapslockPressed(_:)),
+            keyEquivalent: ""
+        )
+        caps.target = self
+        caps.state = CapslockMonitor.isActive ? .on : .off
+        settingsMenu.addItem(caps)
+        monitorCapslocksMenuItem = caps
+
+        let login = NSMenuItem(
+            title: NSLocalizedString("Nyala pas Login", comment: ""),
+            action: #selector(launchAtLoginPressed(_:)),
+            keyEquivalent: ""
+        )
+        login.target = self
         let foundHelper = NSWorkspace.shared.runningApplications.contains {
             $0.bundleIdentifier == helperBundleName
         }
-        
-        launchAtLoginMenuItem.state = foundHelper ? .on : .off
+        login.state = foundHelper ? .on : .off
+        settingsMenu.addItem(login)
+        launchAtLoginMenuItem = login
 
-        monitorCapslocksMenuItem.state = CapslockMonitor.isActive ? .on : .off
+        settingsMenu.addItem(NSMenuItem.separator())
 
-        setupBatteryThresholdMenu()
-        startBatteryMonitoring()
-        setupUpdateMenu()
+        let check = NSMenuItem(
+            title: NSLocalizedString("Cek Update...", comment: ""),
+            action: #selector(checkForUpdatesPressed(_:)),
+            keyEquivalent: ""
+        )
+        check.target = self
+        settingsMenu.addItem(check)
+
+        let automatic = NSMenuItem(
+            title: NSLocalizedString("Cek Update Otomatis", comment: ""),
+            action: #selector(toggleAutomaticChecks(_:)),
+            keyEquivalent: ""
+        )
+        automatic.target = self
+        automatic.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
+        settingsMenu.addItem(automatic)
+
+        let settingsItem = NSMenuItem(
+            title: NSLocalizedString("Pengaturan", comment: ""),
+            action: nil,
+            keyEquivalent: ""
+        )
+        settingsItem.submenu = settingsMenu
+        statusBarMenu.addItem(settingsItem)
+
+        // 4. Panel pengaturan & About.
+        let openSettings = NSMenuItem(
+            title: NSLocalizedString("Buka Pengaturan…", comment: ""),
+            action: #selector(openSettings(_:)),
+            keyEquivalent: ","
+        )
+        openSettings.keyEquivalentModifierMask = [.command]
+        openSettings.target = self
+        statusBarMenu.addItem(openSettings)
+
+        statusBarMenu.addItem(NSMenuItem.separator())
+
+        let about = NSMenuItem(
+            title: NSLocalizedString("Tentang Thinkpad Assistant", comment: ""),
+            action: #selector(openAbout(_:)),
+            keyEquivalent: ""
+        )
+        about.target = self
+        statusBarMenu.addItem(about)
+
+        statusBarMenu.addItem(NSMenuItem.separator())
+
+        let quit = NSMenuItem(
+            title: NSLocalizedString("Keluar", comment: ""),
+            action: #selector(quitPressed(_:)),
+            keyEquivalent: "q"
+        )
+        quit.keyEquivalentModifierMask = [.command]
+        quit.target = self
+        statusBarMenu.addItem(quit)
     }
 
     // MARK: - Battery threshold (YogaSMC / ThinkVPC)
@@ -759,6 +856,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let power = MacOSBatteryReader.read()
 
         // Persen utama = IOPowerSources, sumber yang sama dengan ikon baterai macOS.
+        statusBatteryView.update(percent: power?.percent ?? 0, state: power?.stateText ?? NSLocalizedString("Baterai nggak diketahui", comment: ""))
+
         if let power = power {
             thresholdBatteryItem?.title = String(
                 format: NSLocalizedString("Baterai - %d%% - %@", comment: ""),
@@ -1099,9 +1198,139 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sender.state = enabled ? .on : .off
     }
 
+    // MARK: - Panel pengaturan & About (UI baru)
+
+    @MainActor @objc private func openSettings(_ sender: Any?) {
+        if settingsWindowController == nil {
+            let controller = SettingsViewController()
+            controller.delegate = self
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 440, height: 360),
+                styleMask: [.titled, .closable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = NSLocalizedString("Pengaturan", comment: "")
+            window.contentViewController = controller
+            window.center()
+            window.isReleasedWhenClosed = false
+            settingsWindowController = NSWindowController(window: window)
+        }
+        settingsWindowController?.showWindow(nil)
+        (settingsWindowController?.contentViewController as? SettingsViewController)?.reload()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc private func openAbout(_ sender: Any?) {
+        if aboutWindowController == nil {
+            let controller = AboutViewController()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = NSLocalizedString("Tentang Thinkpad Assistant", comment: "")
+            window.contentViewController = controller
+            window.center()
+            window.isReleasedWhenClosed = false
+            aboutWindowController = NSWindowController(window: window)
+        }
+        aboutWindowController?.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func checkForUpdatesFromAbout() {
+        Task { @MainActor in
+            updaterController.checkForUpdates(nil)
+        }
+    }
+
     @IBAction func quitPressed(_ sender: Any) {
         NSApp.terminate(self)
     }
-    
+
+}
+
+// MARK: - SettingsDelegate
+
+extension AppDelegate: SettingsDelegate {
+
+    var chargeStart: Int { BatteryThresholdManager.shared.start }
+    var chargeStop: Int { BatteryThresholdManager.shared.stop }
+    var thresholdEnabled: Bool { BatteryThresholdManager.shared.isEnabled }
+    var ecDirectEnabled: Bool { BatteryThresholdManager.shared.ecDirectEnabled }
+    var ecStartOffset: UInt8? { BatteryThresholdManager.shared.ecStartOffset }
+    var ecStopOffset: UInt8? { BatteryThresholdManager.shared.ecStopOffset }
+    var ecInhibitOffset: UInt8? { BatteryThresholdManager.shared.ecInhibitOffset }
+    var capsLockMonitoring: Bool { CapslockMonitor.isActive }
+    var launchAtLogin: Bool {
+        NSWorkspace.shared.runningApplications.contains {
+            $0.bundleIdentifier == helperBundleName
+        }
+    }
+    @MainActor var automaticUpdates: Bool { updaterController.updater.automaticallyChecksForUpdates }
+
+    func settingsSetChargeStart(_ value: Int) {
+        applyThreshold(start: value)
+    }
+
+    func settingsSetChargeStop(_ value: Int) {
+        applyThreshold(stop: value)
+    }
+
+    func settingsSetThresholdEnabled(_ enabled: Bool) {
+        applyThreshold(enabled: enabled)
+    }
+
+    func settingsSetECDirectEnabled(_ enabled: Bool) {
+        let manager = BatteryThresholdManager.shared
+        manager.ecDirectEnabled = enabled
+        if enabled && (manager.ecStartOffset == nil || manager.ecStopOffset == nil) {
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("EC Langsung (ACPI WE1B)", comment: "")
+            alert.informativeText = NSLocalizedString("EC Langsung nyala, tapi offset Start/Stop belum diisi. Isi dulu offset di tab Baterai pakai offset yang sudah kamu cek.", comment: "")
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: NSLocalizedString("Oke", comment: ""))
+            alert.runModal()
+        }
+        refreshThresholdMenu()
+        reapplyThresholdQuietly()
+    }
+
+    func settingsSetECOffsets(start: UInt8?, stop: UInt8?, inhibit: UInt8?) {
+        BatteryThresholdManager.shared.setECOffsets(start: start, stop: stop, inhibit: inhibit)
+        refreshThresholdMenu()
+        reapplyThresholdQuietly()
+    }
+
+    func settingsSetCapsLockMonitoring(_ enabled: Bool) {
+        if enabled {
+            CapslockMonitor.start()
+        } else {
+            CapslockMonitor.stop()
+        }
+        monitorCapslocksMenuItem?.state = enabled ? .on : .off
+    }
+
+    func settingsSetLaunchAtLogin(_ enabled: Bool) {
+        SMLoginItemSetEnabled(helperBundleName as CFString, enabled)
+        launchAtLoginMenuItem?.state = enabled ? .on : .off
+    }
+
+    @MainActor func settingsSetAutomaticUpdates(_ enabled: Bool) {
+        updaterController.updater.automaticallyChecksForUpdates = enabled
+    }
+
+    func settingsCheckForUpdates() {
+        Task { @MainActor in
+            updaterController.checkForUpdates(nil)
+        }
+    }
+
+    func settingsRefreshBattery() {
+        refreshThresholdMenu()
+    }
 }
 
