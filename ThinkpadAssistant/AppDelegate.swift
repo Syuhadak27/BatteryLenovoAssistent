@@ -19,7 +19,7 @@ private extension Notification.Name {
 @NSApplicationMain
 class AppDelegate: NSObject, NSApplicationDelegate {
     
-    let statusItem = NSStatusBar.system.statusItem(withLength:NSStatusItem.squareLength)
+    let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     
     let helperBundleName = "de.mszturc.AutoLaunchHelper"
 
@@ -108,104 +108,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startBatteryMonitoring()
     }
 
-    /// Menu dropdown dibangun ulang sepenuhnya dari kode supaya grouping,
-    /// urutan, dan separator konsisten (storyboard hanya dipakai untuk segue About).
+    /// Menu dropdown：header baterai (hijau) + Pengaturan + Cek Update + Tentang + Keluar.
+    /// Item menu lainnya memakai tampilan putih standar.
     @MainActor
     private func rebuildMenu() {
         statusBarMenu.removeAllItems()
 
-        // 1. Header status baterai (custom view).
+        // 1. Header: ikon baterai + persentase + status + progress bar (hijau).
         let headerItem = NSMenuItem()
         headerItem.view = statusBatteryView
         statusBarMenu.addItem(headerItem)
         statusBarMenu.addItem(NSMenuItem.separator())
 
-        // 2. Submenu Baterai — seluruh logika threshold lama dipertahankan.
-        setupBatteryThresholdMenu()
+        // 2. Pengaturan (membuka panel, bukan submenu).
+        statusBarMenu.addItem(menuItem(
+            NSLocalizedString("Pengaturan", comment: ""),
+            action: #selector(openSettings(_:)),
+            keyEquivalent: ",",
+            modifiers: [.command]
+        ))
 
-        // 3. Pengaturan (caplock, login, update otomatis, cek update).
-        let settingsMenu = NSMenu()
-
-        let caps = NSMenuItem(
-            title: NSLocalizedString("Pantau Capslock", comment: ""),
-            action: #selector(monitorCapslockPressed(_:)),
-            keyEquivalent: ""
-        )
-        caps.target = self
-        caps.state = CapslockMonitor.isActive ? .on : .off
-        settingsMenu.addItem(caps)
-        monitorCapslocksMenuItem = caps
-
-        let login = NSMenuItem(
-            title: NSLocalizedString("Nyala pas Login", comment: ""),
-            action: #selector(launchAtLoginPressed(_:)),
-            keyEquivalent: ""
-        )
-        login.target = self
-        let foundHelper = NSWorkspace.shared.runningApplications.contains {
-            $0.bundleIdentifier == helperBundleName
-        }
-        login.state = foundHelper ? .on : .off
-        settingsMenu.addItem(login)
-        launchAtLoginMenuItem = login
-
-        settingsMenu.addItem(NSMenuItem.separator())
-
-        let check = NSMenuItem(
-            title: NSLocalizedString("Cek Update...", comment: ""),
+        // 3. Cek Update di menu utama.
+        statusBarMenu.addItem(menuItem(
+            NSLocalizedString("Cek Update", comment: ""),
             action: #selector(checkForUpdatesPressed(_:)),
             keyEquivalent: ""
-        )
-        check.target = self
-        settingsMenu.addItem(check)
-
-        let automatic = NSMenuItem(
-            title: NSLocalizedString("Cek Update Otomatis", comment: ""),
-            action: #selector(toggleAutomaticChecks(_:)),
-            keyEquivalent: ""
-        )
-        automatic.target = self
-        automatic.state = updaterController.updater.automaticallyChecksForUpdates ? .on : .off
-        settingsMenu.addItem(automatic)
-
-        let settingsItem = NSMenuItem(
-            title: NSLocalizedString("Pengaturan", comment: ""),
-            action: nil,
-            keyEquivalent: ""
-        )
-        settingsItem.submenu = settingsMenu
-        statusBarMenu.addItem(settingsItem)
-
-        // 4. Panel pengaturan & About.
-        let openSettings = NSMenuItem(
-            title: NSLocalizedString("Buka Pengaturan…", comment: ""),
-            action: #selector(openSettings(_:)),
-            keyEquivalent: ","
-        )
-        openSettings.keyEquivalentModifierMask = [.command]
-        openSettings.target = self
-        statusBarMenu.addItem(openSettings)
+        ))
 
         statusBarMenu.addItem(NSMenuItem.separator())
 
-        let about = NSMenuItem(
-            title: NSLocalizedString("Tentang Thinkpad Assistant", comment: ""),
+        // 4. Tentang.
+        statusBarMenu.addItem(menuItem(
+            NSLocalizedString("Tentang", comment: ""),
             action: #selector(openAbout(_:)),
             keyEquivalent: ""
-        )
-        about.target = self
-        statusBarMenu.addItem(about)
+        ))
 
-        statusBarMenu.addItem(NSMenuItem.separator())
-
-        let quit = NSMenuItem(
-            title: NSLocalizedString("Keluar", comment: ""),
+        // 5. Keluar.
+        statusBarMenu.addItem(menuItem(
+            NSLocalizedString("Keluar", comment: ""),
             action: #selector(quitPressed(_:)),
-            keyEquivalent: "q"
-        )
-        quit.keyEquivalentModifierMask = [.command]
-        quit.target = self
-        statusBarMenu.addItem(quit)
+            keyEquivalent: "q",
+            modifiers: [.command]
+        ))
+    }
+
+    private func menuItem(_ title: String, action: Selector, keyEquivalent: String, modifiers: NSEvent.ModifierFlags = []) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
+        item.target = self
+        item.keyEquivalentModifierMask = modifiers
+        return item
     }
 
     // MARK: - Battery threshold (YogaSMC / ThinkVPC)
@@ -908,8 +860,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Baris daya masuk baterai. Hilang total kalau charger nggak nyolok
     /// atau data arus/tegangan nggak tersedia.
     private func refreshPowerMenu() {
+        let power = LivePowerReader.read()
+
+        // Teks di samping ikon di menu bar: volt · watt, hanya saat charger colok.
+        // Warna standar menu bar (labelColor) mengikuti tema light/dark.
+        if let power = power, power.acConnected {
+            let volts = Double(power.voltageMV) / 1000
+            let watts = power.stoppedWhilePlugged ? 0 : power.watts
+            let text = String(
+                format: "%.1fv · %.1fw",
+                locale: Locale(identifier: "en_US_POSIX"), // titik, bukan koma
+                volts, watts
+            )
+            statusItem.button?.attributedTitle = NSAttributedString(string: text, attributes: [
+                .font: NSFont.menuBarFont(ofSize: 0),
+                .foregroundColor: NSColor.labelColor,
+            ])
+        } else {
+            statusItem.button?.attributedTitle = NSAttributedString(string: "")
+        }
+
         guard let item = thresholdPowerItem else { return }
-        guard let power = LivePowerReader.read(), power.acConnected else {
+        guard let power = power, power.acConnected else {
             item.attributedTitle = NSAttributedString(string: "")
             item.isHidden = true
             return

@@ -4,7 +4,7 @@
 //
 //  Dikelola oleh Syuhadak27. https://github.com/Syuhadak27/ThinkpadAssistent
 //
-//  Header status baterai di dropdown menu bar: ikon + persen + status + bar.
+//  Header menu bar: ikon baterai + persentase + status + progress bar (hijau).
 //
 
 import AppKit
@@ -15,14 +15,6 @@ final class StatusBarBatteryView: NSView {
     private let percentLabel = NSTextField(labelWithString: "…")
     private let stateLabel = NSTextField(labelWithString: "")
     private let progressBar = NSProgressIndicator()
-
-    var percent: Int = 0 {
-        didSet {
-            percentLabel.textColor = percent <= 20
-                ? .systemRed
-                : (percent <= 40 ? .systemOrange : .labelColor)
-        }
-    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -42,15 +34,16 @@ final class StatusBarBatteryView: NSView {
         } else {
             iconImageView.image = NSImage(named: NSImage.Name("NSBatteryTemplate"))
         }
+        iconImageView.contentTintColor = .systemGreen
 
         percentLabel.translatesAutoresizingMaskIntoConstraints = false
         percentLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        percentLabel.textColor = .labelColor
+        percentLabel.textColor = .systemGreen
         percentLabel.lineBreakMode = .byTruncatingTail
 
         stateLabel.translatesAutoresizingMaskIntoConstraints = false
         stateLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        stateLabel.textColor = .secondaryLabelColor
+        stateLabel.textColor = .systemGreen
         stateLabel.lineBreakMode = .byTruncatingTail
 
         progressBar.translatesAutoresizingMaskIntoConstraints = false
@@ -68,28 +61,27 @@ final class StatusBarBatteryView: NSView {
         addSubview(progressBar)
 
         NSLayoutConstraint.activate([
-            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            iconImageView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             iconImageView.centerYAnchor.constraint(equalTo: centerYAnchor),
             iconImageView.widthAnchor.constraint(equalToConstant: 22),
             iconImageView.heightAnchor.constraint(equalToConstant: 22),
 
-            percentLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
-            percentLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-            percentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            percentLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 8),
+            percentLabel.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+            percentLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
 
             stateLabel.leadingAnchor.constraint(equalTo: percentLabel.leadingAnchor),
-            stateLabel.topAnchor.constraint(equalTo: percentLabel.bottomAnchor, constant: 0),
-            stateLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            stateLabel.topAnchor.constraint(equalTo: percentLabel.bottomAnchor),
+            stateLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
 
-            progressBar.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 6),
-            progressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            progressBar.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 8),
+            progressBar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             progressBar.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
             progressBar.heightAnchor.constraint(equalToConstant: 3),
         ])
     }
 
     func update(percent: Int, state: String) {
-        self.percent = percent
         percentLabel.stringValue = "\(percent)%"
         stateLabel.stringValue = state
         progressBar.doubleValue = Double(percent)
