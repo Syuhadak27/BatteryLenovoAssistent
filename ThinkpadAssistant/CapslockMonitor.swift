@@ -29,10 +29,12 @@ final class CapslockMonitor {
 
     static func start() {
         isActive = true
+        CapslockFieldIndicator.shared.setMonitoringEnabled(true)
     }
 
     static func stop() {
         isActive = false
+        CapslockFieldIndicator.shared.setMonitoringEnabled(false)
     }
 
     private static func flagsChanged(with event: NSEvent) {
@@ -43,11 +45,7 @@ final class CapslockMonitor {
         }
 
         if isEnabled != lastState {
-            if isEnabled {
-                HUD.showImage(Icons.capslockOn, status: NSLocalizedString("Caps Lock\nnyala", comment: ""))
-            } else {
-                HUD.showImage(Icons.capslockOff, status: NSLocalizedString("Caps Lock\nmati", comment: ""))
-            }
+            CapslockFieldIndicator.shared.capsLockStateChanged(isEnabled)
         }
         lastState = isEnabled
     }
