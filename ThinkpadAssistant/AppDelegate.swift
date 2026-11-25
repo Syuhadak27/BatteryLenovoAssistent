@@ -18,9 +18,9 @@ private extension Notification.Name {
 
 @NSApplicationMain
 class AppDelegate: NSObject, NSApplicationDelegate {
-    
+
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    
+
     let helperBundleName = "de.mszturc.AutoLaunchHelper"
 
     // Battery threshold (YogaSMC ThinkVPC) — lihat SUMMARY.md bagian 4 dan 9.
@@ -53,7 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let thresholdQueue = DispatchQueue(label: "BatteryThreshold.ECReapply", qos: .utility)
 
     @IBOutlet weak var statusBarMenu: NSMenu!
-    
+
     @IBOutlet weak var monitorCapslocksMenuItem: NSMenuItem!
     @IBOutlet weak var launchAtLoginMenuItem: NSMenuItem!
 
@@ -61,19 +61,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let statusBatteryView = StatusBarBatteryView(frame: NSRect(x: 0, y: 0, width: 220, height: 42))
     private var settingsWindowController: NSWindowController?
     private var aboutWindowController: NSWindowController?
-    
+
     @MainActor
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         setupMenuBar()
         ShortcutManager.register()
         CapslockMonitor.register()
     }
-    
+
     func applicationWillTerminate(_ aNotification: Notification) {
         ShortcutManager.unregister()
     }
-    
-    @IBAction func launchAtLoginPressed(_ sender: NSMenuItem) {        
+
+    @IBAction func launchAtLoginPressed(_ sender: NSMenuItem) {
         if sender.state == .off {
             sender.state = .on
             SMLoginItemSetEnabled(helperBundleName as CFString, true)
@@ -82,7 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             SMLoginItemSetEnabled(helperBundleName as CFString, false)
         }
     }
-    
+
     @IBAction func monitorCapslockPressed(_ sender: NSMenuItem) {
         if(sender.state == .off) {
             sender.state = .on
@@ -885,7 +885,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         parts += [cpu, ram, temp]
 
         statusItem.button?.attributedTitle = NSAttributedString(
-            string: parts.joined(separator: " · "),
+            string: parts.joined(separator: "    "),
             attributes: [
                 .font: NSFont.menuBarFont(ofSize: 0),
                 .foregroundColor: NSColor.labelColor,
@@ -1317,4 +1317,3 @@ extension AppDelegate: SettingsDelegate {
         refreshThresholdMenu()
     }
 }
-
