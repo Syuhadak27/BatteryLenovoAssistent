@@ -867,9 +867,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Tanpa colok: CPU 34% · RAM 58% · 52°C
         // Warna standar menu bar (labelColor) mengikuti tema light/dark.
         let stats = SystemStatsReader.shared
-        let cpu = stats.cpuUsage().map { "CPU \($0)%" } ?? "CPU —"
-        let ram = stats.ramUsage().map { "RAM \($0)%" } ?? "RAM —"
-        let temp = stats.cpuTemperature().map { "\($0)°C" } ?? "—°C"
+        let cpu = stats.cpuUsage().map { "🧠 \($0)%" } ?? "🧠 —"
+        let ram = stats.ramUsage().map { "💾 \($0)%" } ?? "💾 —"
+        let temp = stats.cpuTemperature().map { "🌡️ \($0)°C" } ?? "🌡️ —°C"
 
         var parts: [String] = []
         if let power = power, power.acConnected {
@@ -877,7 +877,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let watts = power.stoppedWhilePlugged ? 0 : power.watts
             let amps = power.stoppedWhilePlugged ? 0 : power.amps
             parts.append(String(
-                format: "%.1fV · %.1fW · %.2fA",
+                format: "⚡ %.1fV · 🔌 %.1fW · 🔋 %.2fA",
                 locale: Locale(identifier: "en_US_POSIX"), // titik, bukan koma
                 volts, watts, amps
             ))
