@@ -863,75 +863,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let power = LivePowerReader.read()
 
         // Teks di samping ikon di menu bar.
-        // Bagian charger (V · W · A) tetap seperti sebelumnya, hanya saat colok.
-        // Tambahan selalu tampil:
-        //   CPU   RAM   0.2W   46°
-        //    3%   46%
+        // Saat colok: 12.5V · 22.5W · 5.21A · CPU 34% · RAM 58% · 52°C
+        // Tanpa colok: CPU 34% · RAM 58% · 52°C
+        // Warna standar menu bar (labelColor) mengikuti tema light/dark.
         let stats = SystemStatsReader.shared
-        let cpuValue = stats.cpuUsage().map { "\($0)%" } ?? "—"
-        let ramValue = stats.ramUsage().map { "\($0)%" } ?? "—"
-        let temp = stats.cpuTemperature().map { "\($0)°" } ?? "—°"
+        let cpu = stats.cpuUsage().map { "CPU \($0)%" } ?? "CPU —"
+        let ram = stats.ramUsage().map { "RAM \($0)%" } ?? "RAM —"
+        let temp = stats.cpuTemperature().map { "\($0)°C" } ?? "—°C"
 
-        // Daya terpakai (dari baterai) tampil terus, walau charger dicolok.
-        let usedWatts: Double
-        if let power = power {
-            usedWatts = power.stoppedWhilePlugged ? 0 : power.watts
-        } else {
-            usedWatts = 0
-        }
-        let wattsText = String(
-            format: "%.1fW",
-            locale: Locale(identifier: "en_US_POSIX"),
-            usedWatts
-        )
-
-        let smallFont = NSFont.menuBarFont(ofSize: 9)
-        let smallColor = NSColor.secondaryLabelColor
-        let normalFont = NSFont.menuBarFont(ofSize: 0)
-        let normalColor = NSColor.labelColor
-
-        // Baris 1: [charger] CPU RAM 0.2W 46°
-        // Baris 2: [spacer]  3%  46%
-        let chargerText: String
+        var parts: [String] = []
         if let power = power, power.acConnected {
             let volts = Double(power.voltageMV) / 1000
-            let chargerWatts = power.stoppedWhilePlugged ? 0 : power.watts
+            let watts = power.stoppedWhilePlugged ? 0 : power.watts
             let amps = power.stoppedWhilePlugged ? 0 : power.amps
-            chargerText = String(
-                format: "%.1fV · %.1fW · %.2fA   ",
-                locale: Locale(identifier: "en_US_POSIX"),
-                volts, chargerWatts, amps
-            )
-        } else {
-            chargerText = ""
+            parts.append(String(
+                format: "%.1fV · %.1fW · %.2fA",
+                locale: Locale(identifier: "en_US_POSIX"), // titik, bukan koma
+                volts, watts, amps
+            ))
         }
+        parts += [cpu, ram, temp]
 
-        let top = NSMutableAttributedString()
-        top.append(NSAttributedString(string: chargerText, attributes: [
-            .font: normalFont, .foregroundColor: normalColor,
-        ]))
-        top.append(NSAttributedString(string: "CPU   RAM   ", attributes: [
-            .font: smallFont, .foregroundColor: smallColor,
-        ]))
-        top.append(NSAttributedString(string: wattsText + "   " + temp, attributes: [
-            .font: smallFont, .foregroundColor: normalColor,
-        ]))
-
-        let bottom = NSMutableAttributedString()
-        bottom.append(NSAttributedString(string: String(repeating: " ", count: chargerText.count), attributes: [
-            .font: normalFont, .foregroundColor: normalColor,
-        ]))
-        bottom.append(NSAttributedString(string: "\(cpuValue)     \(ramValue)", attributes: [
-            .font: smallFont, .foregroundColor: smallColor,
-        ]))
-
-        let title = NSMutableAttributedString()
-        title.append(top)
-        title.append(NSAttributedString(string: "\n", attributes: [
-            .font: smallFont, .foregroundColor: smallColor,
-        ]))
-        title.append(bottom)
-        statusItem.button?.attributedTitle = title
+        statusItem.button?.attributedTitle = NSAttributedString(
+            string: parts.joined(separator: " · "),
+            attributes: [
+                .font: NSFont.menuBarFont(ofSize: 0),
+                .foregroundColor: NSColor.labelColor,
+            ]
+        )
 
         guard let item = thresholdPowerItem else { return }
         guard let power = power, power.acConnected else {
