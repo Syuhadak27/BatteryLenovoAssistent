@@ -862,23 +862,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshPowerMenu() {
         let power = LivePowerReader.read()
 
-        // Teks di samping ikon di menu bar: volt · watt, hanya saat charger colok.
+        // Teks di samping ikon di menu bar.
+        // Saat colok: 12.5V · 22.5W · 5.21A · CPU 34% · RAM 58% · 52°C
+        // Tanpa colok: CPU 34% · RAM 58% · 52°C
         // Warna standar menu bar (labelColor) mengikuti tema light/dark.
+        let stats = SystemStatsReader.shared
+        let cpu = stats.cpuUsage().map { "CPU \($0)%" } ?? "CPU —"
+        let ram = stats.ramUsage().map { "RAM \($0)%" } ?? "RAM —"
+        let temp = stats.cpuTemperature().map { "\($0)°C" } ?? "—°C"
+
+        var parts: [String] = []
         if let power = power, power.acConnected {
             let volts = Double(power.voltageMV) / 1000
             let watts = power.stoppedWhilePlugged ? 0 : power.watts
-            let text = String(
-                format: "%.1fv · %.1fw",
+            let amps = power.stoppedWhilePlugged ? 0 : power.amps
+            parts.append(String(
+                format: "%.1fV · %.1fW · %.2fA",
                 locale: Locale(identifier: "en_US_POSIX"), // titik, bukan koma
-                volts, watts
-            )
-            statusItem.button?.attributedTitle = NSAttributedString(string: text, attributes: [
+                volts, watts, amps
+            ))
+        }
+        parts += [cpu, ram, temp]
+
+        statusItem.button?.attributedTitle = NSAttributedString(
+            string: parts.joined(separator: " · "),
+            attributes: [
                 .font: NSFont.menuBarFont(ofSize: 0),
                 .foregroundColor: NSColor.labelColor,
-            ])
-        } else {
-            statusItem.button?.attributedTitle = NSAttributedString(string: "")
-        }
+            ]
+        )
 
         guard let item = thresholdPowerItem else { return }
         guard let power = power, power.acConnected else {
